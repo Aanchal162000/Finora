@@ -556,7 +556,7 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
     const token = authService.getToken();
     if (token) {
       try {
-        const user = authService.getMe(token);
+        const user = await authService.getMe(token);
         console.log("Fetched user data:", user);
         setUserProfile(user);
         setIsWhitelisted(!!user.isWhitelisted);
