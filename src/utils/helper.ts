@@ -24,18 +24,18 @@ export const isValidAddress = (address: string): boolean => {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 };
 
-export const getTransactionErrorMessage = (error: any): string => {
-  if (error?.message) {
-    if (error.message.includes("user rejected")) {
+export const getTransactionErrorMessage = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message: string }).message;
+    if (message.includes("user rejected")) {
       return "Transaction was rejected by user";
     }
-    if (error.message.includes("insufficient funds")) {
+    if (message.includes("insufficient funds")) {
       return "Insufficient funds for transaction";
     }
-    if (error.message.includes("gas")) {
+    if (message.includes("gas")) {
       return "Gas estimation failed";
     }
   }
   return "Transaction failed";
 };
-

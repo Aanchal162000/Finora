@@ -40,7 +40,7 @@ const WalletSignup: React.FC<WalletSignupProps> = ({ onBack }) => {
       toastSuccess("OTP sent to your email");
       setStage("otp");
       setTimeout(() => inputRefs.current[0]?.focus(), 50);
-    } catch (e) {
+    } catch {
       toastError("Failed to send OTP. Please try again.");
     } finally {
       setSubmitting(false);
@@ -107,6 +107,8 @@ const WalletSignup: React.FC<WalletSignupProps> = ({ onBack }) => {
     if (stage === "otp" && canSubmitOtp) {
       void verifyOtp();
     }
+    // No additional dependencies, verifyOtp is stable for this case
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSubmitOtp, stage]);
   return (
     <div className="h-screen w-full  bg-[url('/ModelBg.png')] bg-cover bg-no-repeat bg-center relative overflow-hidden">

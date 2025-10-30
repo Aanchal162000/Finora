@@ -22,7 +22,7 @@ export interface IWalletProp {
 
 export interface INetworkData {
   account: string;
-  provider: any;
+  provider: unknown;
   chainId: number;
 }
 
@@ -30,9 +30,9 @@ export interface IUserMe {
   address?: string;
   isWhitelisted?: boolean;
   twitterAccount?: string;
-  morphoVault?: string;
+  morphoVault?: string | null;
   isIntitialDeposit?: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export type TWalletsList = "metamask" | "trust" | "coinbase" | "walletConnect";
@@ -52,7 +52,7 @@ export interface ILoginState {
     prop: number,
     callback?: () => void
   ) => Promise<boolean | undefined>;
-  currentProvider: any;
+  currentProvider: unknown;
   networkData: INetworkData | null;
   setNetworkData: React.Dispatch<React.SetStateAction<INetworkData | null>>;
   setAddress: (prop: string | null) => void;
@@ -87,8 +87,23 @@ export interface ILoginState {
   logout: () => Promise<void>;
   setUserProfile: (user: Partial<IUserMe>) => void;
   userProfile: Partial<IUserMe>;
-  provider: any;
+  provider: unknown;
   getVaultApy: (vault: string) => Promise<number>;
   chainId: number | null;
   setChainId: (chainId: number | null) => void;
+}
+
+// General ethereum provider type (minimal, extensible as needed)
+export interface Ethereumish {
+  isMetaMask?: boolean;
+  isTrust?: boolean;
+  isCoinbaseWallet?: boolean;
+  providers?: Ethereumish[];
+  selectedAddress?: string;
+  request: (args: {
+    method: string;
+    params?: unknown[] | Record<string, unknown>;
+  }) => Promise<unknown>;
+  on?: (event: string, cb: (id: unknown) => void) => void;
+  [key: string]: unknown;
 }

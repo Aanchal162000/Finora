@@ -5,6 +5,8 @@ import {
   useContext,
   useEffect,
   useState,
+  useCallback,
+  useRef,
 } from "react";
 import { ProviderRpcError, RpcError } from "viem";
 import { initializeConnector } from "@web3-react/core";
@@ -17,6 +19,7 @@ import {
   IUserMe,
   ILoginState,
 } from "@/app/interfaces";
+import type { Ethereumish } from "@/app/interfaces";
 import { sleepTimer } from "@/utils/helper";
 import { BrowserProvider, JsonRpcProvider, Contract } from "ethers";
 import {
@@ -29,10 +32,11 @@ import { base } from "viem/chains";
 import "viem/window";
 import * as authService from "@/utils/authService";
 import { useRouter } from "next/navigation";
+import type { Eip1193Provider } from "ethers";
 
-let ethereum: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+let ethereum: unknown = null;
 if (typeof window !== "undefined") {
-  ethereum = window?.ethereum;
+  ethereum = (window as { ethereum?: Ethereumish })?.ethereum; // Create and use Ethereumish interface
 }
 
 const WalletContext = createContext<ILoginState>({} as ILoginState);
@@ -48,9 +52,10 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
   );
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
-  const [currentConnector, setCurrentConnector] =
-    useState<TWalletsList>("metamask");
-  const [currentProvider, setCurrentProvider] = useState<any>(ethereum || null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [, setCurrentConnector] = useState<TWalletsList>("metamask");
+  const [currentProvider, setCurrentProvider] = useState<unknown>(
+    ethereum || null
+  );
   const [trustWallet] = initializeConnector<TrustWallet>(
     (actions) => new TrustWallet({ actions })
   );
@@ -79,16 +84,17 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
 
   // User profile state (centralized)
   const [userProfile, setUserProfileState] = useState<Partial<IUserMe>>({});
+  const hasFetchedUserRef = useRef(false);
 
   const triggerAPIs = () => setTrigger(trigger + 1);
 
   const authenticateUserWithBackend = async (
     address: string,
-    provider?: any,
-    client?: any
+    provider?: unknown,
+    client?: unknown
   ): Promise<string | undefined> => {
     // 1. If token exists, do nothing
-    const existingToken = authService.getToken();
+    void authService.getToken();
 
     try {
       // 2. Get nonce message from backend
@@ -96,13 +102,31 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
       const message = nonceResponse.data.message;
       // 3. Ask user to sign the message
       let signature = "";
-      if (client) {
-        signature = await client.signMessage({
+      if (
+        client &&
+        (
+          client as {
+            signMessage?: (args: {
+              account: `0x${string}`;
+              message: string;
+            }) => Promise<string>;
+          }
+        ).signMessage
+      ) {
+        const signerClient = client as {
+          signMessage: (args: {
+            account: `0x${string}`;
+            message: string;
+          }) => Promise<string>;
+        };
+        signature = await signerClient.signMessage({
           account: address as `0x${string}`,
           message,
         });
       } else if (provider) {
-        const web3Provider = new BrowserProvider(provider);
+        const web3Provider = new BrowserProvider(
+          provider as unknown as Eip1193Provider
+        ); // define Ethereumish in interface
         const signer = await web3Provider.getSigner();
         signature = await signer.signMessage(message);
       } else {
@@ -129,7 +153,7 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
           setShowTwitterSlide(false);
           setShowAccessCodeSlide(false);
           setUserMorphoVault(user?.morphoVault ? user?.morphoVault : null);
-          setIsInitialDeposit(user?.isIntitialDeposit);
+          setIsInitialDeposit(!!user?.isIntitialDeposit);
 
           if (!user?.morphoVault || !user?.isIntitialDeposit) {
             setIsOnboarded(false);
@@ -164,15 +188,19 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
     await authService.removeToken();
     try {
       console.log("connect metamask");
-      let justProvider =
-        ethereum?.providers?.find((e: any) => e?.isMetaMask && e?._metamask) ||
-        window?.ethereum;
+      const justProvider =
+        (Array.isArray((ethereum as Ethereumish)?.providers) // use Ethereumish type instead of any
+          ? ((ethereum as Ethereumish).providers as Ethereumish[]).find((e) => {
+              const p = e as { isMetaMask?: boolean; _metamask?: unknown };
+              return !!(p?.isMetaMask && p?._metamask);
+            })
+          : undefined) || (window as { ethereum?: Ethereumish })?.ethereum; // use Ethereumish type
       if (!justProvider) {
         throw new Error("MetaMask is not installed.");
       }
       console.log("justProvider", justProvider);
-      const client: any = await createWalletClient({
-        transport: custom(justProvider, {
+      const client = await createWalletClient({
+        transport: custom(justProvider as unknown as Eip1193Provider, {
           retryCount: 3,
           retryDelay: 1000,
         }),
@@ -194,14 +222,14 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const [address] = await client.requestAddresses();
+      const [addr] = await client.requestAddresses();
 
       await sleepTimer(1000);
-      setAddress(address);
+      setAddress(addr);
       setCurrentConnector("metamask");
       setCurrentProvider(justProvider);
       setLoading(false);
-      await authenticateUserWithBackend(address, justProvider, client);
+      await authenticateUserWithBackend(addr, justProvider, client);
     } catch (error) {
       if (
         error instanceof Error &&
@@ -211,15 +239,17 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
         await sleepTimer(1500);
         window.open(`https://metamask.io/download/`);
       } else if (
-        error?.toString().includes("ChainNotConfiguredForConnectorError")
+        (error as { toString: () => string })
+          ?.toString()
+          .includes("ChainNotConfiguredForConnectorError")
       ) {
-        let switched = await switchNetwork(8453);
+        const switched = await switchNetwork(8453);
         if (switched) await connectMetamask();
       } else if (error instanceof RpcError) {
         toastError("Wallet connection failed");
       } else if (error instanceof Error) {
         toastError("Wallet connection failed");
-      } else if ((error as any)?.message) {
+      } else if ((error as { message?: string })?.message) {
         toastError("Wallet connection failed");
       } else {
         toastError("Something went wrong");
@@ -237,56 +267,73 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
       await trustWallet.activate(8453);
       const currProvider = trustWallet.provider!;
 
-      let justProvider =
+      const justProvider =
         currProvider ||
-        ethereum?.providers.find((e: any) => e?.isTrust) ||
-        ethereum;
-      let account = justProvider?.selectedAddress;
+        (Array.isArray((ethereum as Ethereumish)?.providers) // use Ethereumish type
+          ? ((ethereum as Ethereumish).providers as Ethereumish[]).find(
+              (e) => (e as { isTrust?: boolean })?.isTrust
+            )
+          : undefined) ||
+        (ethereum as Ethereumish); // use Ethereumish type
+      let account = (justProvider as { selectedAddress?: string })
+        ?.selectedAddress as string | undefined;
 
-      let client: any = null;
+      let client: unknown = null;
       if (!account) {
         client = await createWalletClient({
-          transport: custom(justProvider, {
+          transport: custom(justProvider as unknown as Eip1193Provider, {
             retryCount: 3,
             retryDelay: 1000,
           }),
         });
         try {
-          await client.switchChain({ id: base.id });
+          await (
+            client as { switchChain: (args: { id: number }) => Promise<void> }
+          ).switchChain({ id: base.id });
           setChainId(base.id);
         } catch (e) {
           try {
-            await client.addChain({ chain: base });
+            await (
+              client as {
+                addChain: (args: { chain: typeof base }) => Promise<void>;
+              }
+            ).addChain({ chain: base });
             setChainId(base.id);
           } catch (e) {
             setTimeout(
-              async () => await client!.switchChain({ id: base.id }),
+              async () =>
+                await (
+                  client as {
+                    switchChain: (args: { id: number }) => Promise<void>;
+                  }
+                ).switchChain({ id: base.id }),
               100
             );
             await new Promise((resolve) => setTimeout(resolve, 1000));
             console.log("error", e);
           }
         }
-        const [address] = await client?.requestAddresses();
-        account = address;
+        const [addr] = await (
+          client as { requestAddresses: () => Promise<string[]> }
+        )?.requestAddresses();
+        account = addr;
       }
 
       await sleepTimer(1000);
 
       setCurrentProvider(justProvider);
-      setAddress(account);
+      setAddress(account!);
       setLoading(false);
       setCurrentConnector("trust");
       if (client) {
-        await authenticateUserWithBackend(account, justProvider, client);
+        await authenticateUserWithBackend(account!, justProvider, client);
       } else {
-        await authenticateUserWithBackend(account, justProvider);
+        await authenticateUserWithBackend(account!, justProvider);
       }
     } catch (error) {
+      const errObj = error as { message?: string };
       toastError(
-        (error as any)?.message
-          ? `Error: ${(error as any)?.message}`
-          : "Something went wrong"
+        errObj?.message ? `Error: ${errObj.message}` : "Something went wrong"
       );
       console.log(error, "details");
     } finally {
@@ -298,16 +345,22 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
   const connectCoinbase = async () => {
     try {
       console.log("connect coinbase");
-      // Check if Coinbase Wallet is available
-      let justProvider =
-        ethereum?.providers?.find((e: any) => e?.isCoinbaseWallet) || ethereum;
+      const justProvider =
+        (Array.isArray((ethereum as Ethereumish)?.providers) // use Ethereumish type
+          ? ((ethereum as Ethereumish).providers as Ethereumish[]).find(
+              (e) => (e as { isCoinbaseWallet?: boolean })?.isCoinbaseWallet
+            )
+          : undefined) || (ethereum as Ethereumish); // use Ethereumish type
 
       if (!justProvider) {
         throw new Error("Coinbase Wallet is not installed");
       }
 
-      // Request account access
-      const accounts = await justProvider.request({
+      const accounts = await (
+        justProvider as {
+          request: (args: { method: string }) => Promise<string[]>;
+        }
+      ).request({
         method: "eth_requestAccounts",
       });
       const account = accounts[0];
@@ -321,11 +374,12 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       await authenticateUserWithBackend(account, justProvider);
     } catch (error) {
+      const e = error as { reason?: string } | Error;
       toastError(
-        (error as any)?.reason
-          ? `Error: ${(error as any)?.reason}`
-          : error instanceof Error
-          ? error?.message
+        (e as { reason?: string })?.reason
+          ? `Error: ${(e as { reason?: string })?.reason}`
+          : e instanceof Error
+          ? e?.message
           : "Something went wrong"
       );
       setLoading(false);
@@ -379,16 +433,24 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
   const switchNetwork = async (chainId: number, callback?: () => void) => {
     if (!chainId) return;
     try {
-      await currentProvider.request({
+      await (
+        currentProvider as {
+          request: (args: {
+            method: string;
+            params?: unknown[];
+          }) => Promise<unknown>;
+        }
+      ).request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: `0x${Number(chainId).toString(16)}` }],
       });
       setChainId(chainId);
       return true;
     } catch (e) {
-      if ((e as any)?.code === 4001) {
+      const err = e as { code?: number };
+      if (err?.code === 4001) {
         toastError("User rejected switching chains.");
-      } else if ((e as any)?.code === 4902) {
+      } else if (err?.code === 4902) {
         toastError("Chain not added to wallet. Initiating chain setup...", {
           autoClose: 2000,
         });
@@ -409,7 +471,14 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
   const addChainNetwork = async (chainId: number) => {
     if (!chainId) return;
     try {
-      await currentProvider.request({
+      await (
+        currentProvider as {
+          request: (args: {
+            method: string;
+            params?: unknown[];
+          }) => Promise<unknown>;
+        }
+      ).request({
         method: "wallet_addEthereumChain",
         params: [chainNetworkParams[chainId]],
       });
@@ -426,22 +495,24 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const loadWallet = async () => {
+  const loadWallet = useCallback(async () => {
     try {
-      const provider = new BrowserProvider(currentProvider);
+      const provider = new BrowserProvider(
+        currentProvider as unknown as Eip1193Provider
+      );
       const accounts = await provider.send("eth_requestAccounts", []);
       const networkInfo = await provider.getNetwork();
-      const chainId = Number(networkInfo.chainId);
-      const walletNetwork = {
+      const currentChainId = Number(networkInfo.chainId);
+      const walletNetwork: INetworkData = {
         account: accounts[0],
         provider: provider,
-        chainId: chainId,
+        chainId: currentChainId,
       };
       setNetworkData(walletNetwork);
-      setChainId(chainId);
+      setChainId(currentChainId);
       return walletNetwork;
-    } catch (err) {}
-  };
+    } catch {}
+  }, [currentProvider]);
 
   const fetchTokenBalance = async (
     tokenAddress: string,
@@ -510,10 +581,8 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
 
   const setUserProfile = (user?: Partial<IUserMe>) => {
     if (!user) return;
-    console.log("Setting user profile:", user);
     setUserProfileState((prev) => {
       const newProfile = { ...prev, ...user };
-      console.log("New user profile:", newProfile);
       return newProfile;
     });
   };
@@ -544,42 +613,64 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!currentProvider && !address) return;
 
-    currentProvider?.on("chainChanged", (id: any) => {
-      let chainId: any = id;
-      setChainId(chainId);
-      loadWallet().then((res: any) => {
-        console.log("Wallet Info Loaded", res);
-      });
-    });
+    const handler = (id: unknown) => {
+      const newChainId = id as string | number;
+      setChainId(newChainId as number);
+      void loadWallet();
+    };
 
-    // Check if we have a token and fetch user data
+    (
+      currentProvider as {
+        on?: (event: string, cb: (id: unknown) => void) => void;
+        removeListener?: (event: string, cb: (id: unknown) => void) => void;
+        off?: (event: string, cb: (id: unknown) => void) => void;
+      }
+    )?.on?.("chainChanged", handler);
+
     const token = authService.getToken();
     if (token) {
-      try {
-        const user = await authService.getMe(token);
-        console.log("Fetched user data:", user);
-        setUserProfile(user);
-        setIsWhitelisted(!!user.isWhitelisted);
-        setTwitterAccount(user.twitterAccount);
-        setUserMorphoVault(user?.morphoVault ? user?.morphoVault : null);
-        setIsInitialDeposit(user?.isIntitialDeposit);
+      if (!hasFetchedUserRef.current) {
+        (async () => {
+          try {
+            const user = await authService.getMe(token);
+            setUserProfile(user);
+            setIsWhitelisted(!!user.isWhitelisted);
+            setTwitterAccount(user.twitterAccount);
+            setUserMorphoVault(user?.morphoVault ? user?.morphoVault : null);
+            setIsInitialDeposit(!!user?.isIntitialDeposit);
 
-        setShowTwitterSlide(false);
-        setShowAccessCodeSlide(false);
+            setShowTwitterSlide(false);
+            setShowAccessCodeSlide(false);
 
-        if (!user?.morphoVault || !user?.isIntitialDeposit) {
-          setIsOnboarded(false);
-          setShowDashboard(false);
-        }
-        if (user?.morphoVault && user?.isIntitialDeposit) {
-          setIsOnboarded(true);
-          setShowDashboard(true);
-        }
-      } catch (error) {
-        console.error("Error fetching user data:", error);
+            if (!user?.morphoVault || !user?.isIntitialDeposit) {
+              setIsOnboarded(false);
+              setShowDashboard(false);
+            }
+            if (user?.morphoVault && user?.isIntitialDeposit) {
+              setIsOnboarded(true);
+              setShowDashboard(true);
+            }
+            hasFetchedUserRef.current = true;
+          } catch (error) {
+            console.error("Error fetching user data:", error);
+          }
+        })();
       }
     }
-  }, [address, currentProvider]);
+    return () => {
+      (
+        currentProvider as {
+          removeListener?: (event: string, cb: (id: unknown) => void) => void;
+          off?: (event: string, cb: (id: unknown) => void) => void;
+        }
+      )?.removeListener?.("chainChanged", handler);
+      (
+        currentProvider as {
+          off?: (event: string, cb: (id: unknown) => void) => void;
+        }
+      )?.off?.("chainChanged", handler);
+    };
+  }, [address, currentProvider, loadWallet]);
 
   return (
     <WalletContext.Provider
@@ -626,7 +717,9 @@ export default function WalletProvider({ children }: { children: ReactNode }) {
         logout,
         setUserProfile,
         userProfile,
-        provider: currentProvider ? new BrowserProvider(currentProvider) : null,
+        provider: currentProvider
+          ? new BrowserProvider(currentProvider as unknown as Eip1193Provider)
+          : null,
         getVaultApy,
         chainId,
         setChainId,
