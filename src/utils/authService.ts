@@ -1,4 +1,6 @@
 // Authentication service functions
+import type { IUserMe } from "@/app/interfaces";
+
 export const getToken = (): string | null => {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("auth_token");
@@ -15,7 +17,7 @@ export const removeToken = async (): Promise<void> => {
 };
 
 export const getNonce = async (
-  address: string
+  address: string // eslint-disable-line @typescript-eslint/no-unused-vars
 ): Promise<{ data: { message: string } }> => {
   // Mock implementation - replace with actual API call
   return {
@@ -26,9 +28,9 @@ export const getNonce = async (
 };
 
 export const login = async (
-  address: string,
-  message: string,
-  signature: string
+  address: string, // eslint-disable-line @typescript-eslint/no-unused-vars
+  message: string, // eslint-disable-line @typescript-eslint/no-unused-vars
+  signature: string // eslint-disable-line @typescript-eslint/no-unused-vars
 ): Promise<{ data: { token: { token: string } } }> => {
   // Mock implementation - replace with actual API call
   return {
@@ -40,7 +42,9 @@ export const login = async (
   };
 };
 
-export const getMe = async (token: string): Promise<any> => {
+export const getMe = async (
+  token: string // eslint-disable-line @typescript-eslint/no-unused-vars
+): Promise<IUserMe> => {
   // Mock implementation - replace with actual API call
   return {
     address: "0x1234567890123456789012345678901234567890",
@@ -50,4 +54,3 @@ export const getMe = async (token: string): Promise<any> => {
     isIntitialDeposit: false,
   };
 };
-

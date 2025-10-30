@@ -5,7 +5,19 @@ export const headerRoutes = [
   { id: "portfolio", name: "Portfolio" },
 ];
 
-export const chainNetworkParams: Record<number, any> = {
+export interface ChainNetworkConfig {
+  chainId: string;
+  chainName: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls: string[];
+}
+
+export const chainNetworkParams: Record<number, ChainNetworkConfig> = {
   8453: {
     chainId: "0x20ED",
     chainName: "Base",
@@ -39,4 +51,3 @@ export const transactionProviderURL: Record<number, string> = {
   1: "https://eth-mainnet.alchemyapi.io/v2/YOUR_API_KEY",
   8453: "https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY",
 };
-

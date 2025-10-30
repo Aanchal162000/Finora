@@ -21,10 +21,6 @@ export default function Home() {
     setCurrentScreen("landing");
   };
 
-  const handleGoToDashboard = () => {
-    setCurrentScreen("dashboard");
-  };
-
   // If wallet is connected, show dashboard
   if (isConnected && currentScreen !== "wallet-signup") {
     return (
